@@ -216,52 +216,43 @@ class AIHunterGame {
         window.addEventListener('deviceorientationabsolute', handleOrientation);
         
         if (window.DeviceMotionEvent) {
-            let velocity = { x: 0, y: 0, z: 0 };
-            let lastTime = Date.now();
+            let stepCount = 0;
+            let lastAccelMagnitude = 0;
+            let stepThreshold = 12;
+            let lastStepTime = 0;
             
             window.addEventListener('devicemotion', (e) => {
                 if (e.acceleration) {
                     const currentTime = Date.now();
-                    const deltaTime = (currentTime - lastTime) / 1000;
                     
-                    const threshold = 1.5;
-                    const walkingThreshold = 0.8;
+                    // Calculate acceleration magnitude
+                    const accelMagnitude = Math.sqrt(
+                        (e.acceleration.x || 0) ** 2 + 
+                        (e.acceleration.y || 0) ** 2 + 
+                        (e.acceleration.z || 0) ** 2
+                    );
                     
-                    // Only count significant movement that indicates walking
-                    const accel = {
-                        x: Math.abs(e.acceleration.x) > threshold ? e.acceleration.x : 0,
-                        y: Math.abs(e.acceleration.y) > walkingThreshold ? e.acceleration.y : 0,
-                        z: Math.abs(e.acceleration.z) > threshold ? e.acceleration.z : 0
-                    };
-                    
-                    // Reduce sensitivity to prevent hand movement detection
-                    velocity.x += accel.x * deltaTime * 0.3;
-                    velocity.y += accel.y * deltaTime * 0.5;
-                    velocity.z += accel.z * deltaTime * 0.3;
-                    
-                    velocity.x *= 0.85;
-                    velocity.y *= 0.85;
-                    velocity.z *= 0.85;
-                    
-                    const oldPosition = { ...this.playerPosition };
-                    // Only register movement if there's consistent acceleration pattern
-                    if (Math.abs(accel.y) > walkingThreshold) {
-                        this.playerPosition.x += velocity.x * deltaTime;
-                        this.playerPosition.y += velocity.y * deltaTime;
-                        this.playerPosition.z += velocity.z * deltaTime;
-                    }
-                    
-                    if (this.waitingForMovement && this.lastCapturePosition) {
-                        const movementDelta = this.calculateDistance(oldPosition, this.playerPosition);
-                        this.distanceTraveled += movementDelta;
-                        this.updateDistanceCounter();
+                    // Detect steps using peak detection
+                    if (accelMagnitude > stepThreshold && 
+                        accelMagnitude > lastAccelMagnitude && 
+                        currentTime - lastStepTime > 300) { // Minimum 300ms between steps
                         
-                        if (this.distanceTraveled >= this.minMovementDistance) {
-                            this.spawnNextAI();
+                        stepCount++;
+                        lastStepTime = currentTime;
+                        
+                        if (this.waitingForMovement) {
+                            // Approximate: 2 steps = 1 meter
+                            this.distanceTraveled = stepCount * 0.5;
+                            this.updateDistanceCounter();
+                            
+                            if (this.distanceTraveled >= this.minMovementDistance) {
+                                stepCount = 0; // Reset for next time
+                                this.spawnNextAI();
+                            }
                         }
                     }
                     
-                    lastTime = currentTime;
+                    lastAccelMagnitude = accelMagnitude;
                 }
             });
         }
@@ -488,11 +479,23 @@ class AIHunterGame {
         this.ctx.fillStyle = '#000';
         this.ctx.fillText(this.currentAI.emoji || '🤖', x, floatY);
         
-        // Draw name
-        this.ctx.font = 'bold 14px Orbitron, sans-serif';
+        // Draw name with better readability
+        this.ctx.font = 'bold 16px Orbitron, sans-serif';
+        
+        // Draw background for text
+        const textMetrics = this.ctx.measureText(this.currentAI.name);
+        const textWidth = textMetrics.width;
+        const textHeight = 20;
+        const textX = x - textWidth / 2 - 8;
+        const textY = floatY + size + 5;
+        
+        this.ctx.fillStyle = 'rgba(0, 0, 0, 0.8)';
+        this.ctx.fillRect(textX, textY, textWidth + 16, textHeight + 8);
+        
+        // Draw text with strong outline
         this.ctx.fillStyle = 'white';
-        this.ctx.strokeStyle = 'rgba(0, 0, 0, 0.8)';
-        this.ctx.lineWidth = 4;
+        this.ctx.strokeStyle = 'rgba(0, 0, 0, 1)';
+        this.ctx.lineWidth = 3;
         this.ctx.strokeText(this.currentAI.name, x, floatY + size + 15);
         this.ctx.fillText(this.currentAI.name, x, floatY + size + 15);
         
@@ -530,38 +533,40 @@ class AIHunterGame {
         
         this.currentAI = uncaught[Math.floor(Math.random() * uncaught.length)];
         
+        // More challenging positions with wider angle ranges
         const positions = [
-            { type: 'ceiling', pitch: -45, angle: 'random', hint: { en: 'LOOK UP', ja: '上を見て' } },
-            { type: 'floor', pitch: 45, angle: 'random', hint: { en: 'LOOK DOWN', ja: '下を見て' } },
-            { type: 'left', pitch: 0, angle: 'left', hint: { en: 'TURN LEFT', ja: '左を向いて' } },
-            { type: 'right', pitch: 0, angle: 'right', hint: { en: 'TURN RIGHT', ja: '右を向いて' } },
-            { type: 'behind', pitch: 0, angle: 'behind', hint: { en: 'TURN AROUND', ja: '振り返って' } },
-            { type: 'up_left', pitch: -30, angle: 'left', hint: { en: 'LOOK UP LEFT', ja: '左上を見て' } },
-            { type: 'up_right', pitch: -30, angle: 'right', hint: { en: 'LOOK UP RIGHT', ja: '右上を見て' } },
-            { type: 'down_left', pitch: 30, angle: 'left', hint: { en: 'LOOK DOWN LEFT', ja: '左下を見て' } }
+            { type: 'ceiling', pitch: -45, angleRange: 360, hint: { en: 'LOOK UP', ja: '上を見て' } },
+            { type: 'floor', pitch: 45, angleRange: 360, hint: { en: 'LOOK DOWN', ja: '下を見て' } },
+            { type: 'left', pitch: 0, angleOffset: -90, angleRange: 60, hint: { en: 'TURN LEFT', ja: '左を向いて' } },
+            { type: 'right', pitch: 0, angleOffset: 90, angleRange: 60, hint: { en: 'TURN RIGHT', ja: '右を向いて' } },
+            { type: 'behind', pitch: 0, angleOffset: 180, angleRange: 80, hint: { en: 'TURN AROUND', ja: '振り返って' } },
+            { type: 'up_left', pitch: -30, angleOffset: -120, angleRange: 80, hint: { en: 'LOOK UP LEFT', ja: '左上を見て' } },
+            { type: 'up_right', pitch: -30, angleOffset: 120, angleRange: 80, hint: { en: 'LOOK UP RIGHT', ja: '右上を見て' } },
+            { type: 'down_left', pitch: 30, angleOffset: -120, angleRange: 80, hint: { en: 'LOOK DOWN LEFT', ja: '左下を見て' } },
+            { type: 'down_right', pitch: 30, angleOffset: 120, angleRange: 80, hint: { en: 'LOOK DOWN RIGHT', ja: '右下を見て' } },
+            { type: 'far_left', pitch: 0, angleOffset: -150, angleRange: 40, hint: { en: 'TURN FAR LEFT', ja: '大きく左へ' } },
+            { type: 'far_right', pitch: 0, angleOffset: 150, angleRange: 40, hint: { en: 'TURN FAR RIGHT', ja: '大きく右へ' } }
         ];
         
         const position = positions[Math.floor(Math.random() * positions.length)];
         
-        switch(position.angle) {
-            case 'random':
-                this.aiAngle = Math.random() * 360 - 180;
-                break;
-            case 'behind':
-                this.aiAngle = this.heading + 180;
-                break;
-            case 'left':
-                this.aiAngle = this.heading - 90;
-                break;
-            case 'right':
-                this.aiAngle = this.heading + 90;
-                break;
+        // Calculate AI angle based on position
+        if (position.angleRange === 360) {
+            // Random position for ceiling/floor
+            this.aiAngle = Math.random() * 360 - 180;
+        } else {
+            // Specific direction with some randomness
+            const baseAngle = this.heading + (position.angleOffset || 0);
+            const randomOffset = (Math.random() - 0.5) * position.angleRange;
+            this.aiAngle = baseAngle + randomOffset;
         }
         
+        // Normalize angle
         while (this.aiAngle > 180) this.aiAngle -= 360;
         while (this.aiAngle < -180) this.aiAngle += 360;
         
-        this.aiPitch = position.pitch + (Math.random() - 0.5) * 15;
+        // Add more pitch variation
+        this.aiPitch = position.pitch + (Math.random() - 0.5) * 25;
         this.aiPitch = Math.max(-60, Math.min(60, this.aiPitch));
         
         this.currentAI.positionHint = position.hint[this.language];
@@ -737,20 +742,24 @@ class AIHunterGame {
             top: 20px;
             left: 50%;
             transform: translateX(-50%);
-            background: rgba(255, 51, 102, 0.9);
+            background: rgba(0, 0, 0, 0.9);
+            border: 2px solid rgba(255, 51, 102, 0.8);
             color: white;
             padding: 12px 24px;
             border-radius: 8px;
             font-family: 'Orbitron', sans-serif;
-            font-size: 11px;
+            font-size: 12px;
+            font-weight: bold;
             letter-spacing: 1px;
             z-index: 1000;
             animation: slideDown 0.3s ease;
             text-align: center;
             max-width: 280px;
+            box-shadow: 0 0 20px rgba(255, 51, 102, 0.5);
+            text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.8);
         `;
         const targetText = this.language === 'ja' ? 'ターゲット発見' : 'TARGET DETECTED';
-        notification.innerHTML = `<div style="margin-bottom: 4px;">🎯 ${targetText}</div><div style="font-size: 10px; opacity: 0.8;">${hint}</div>`;
+        notification.innerHTML = `<div style="margin-bottom: 4px; color: #ff3366;">🎯 ${targetText}</div><div style="font-size: 11px; color: #00f0ff;">${hint}</div>`;
         document.body.appendChild(notification);
         
         setTimeout(() => notification.remove(), 5000);
@@ -759,7 +768,6 @@ class AIHunterGame {
     startMovementPhase() {
         this.waitingForMovement = true;
         this.distanceTraveled = 0;
-        this.lastCapturePosition = { ...this.playerPosition };
         this.showDistanceCounter();
     }
     
@@ -788,16 +796,19 @@ class AIHunterGame {
             bottom: 200px;
             left: 50%;
             transform: translateX(-50%);
-            background: rgba(0, 240, 255, 0.1);
+            background: rgba(0, 0, 0, 0.9);
             border: 2px solid var(--primary);
             border-radius: 12px;
             padding: 16px;
             font-family: 'Orbitron', sans-serif;
             font-size: 12px;
+            font-weight: bold;
             color: var(--primary);
             letter-spacing: 1px;
             text-align: center;
             z-index: 1000;
+            box-shadow: 0 0 20px rgba(0, 240, 255, 0.3);
+            text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.8);
         `;
         document.body.appendChild(counter);
         this.updateDistanceCounter();
