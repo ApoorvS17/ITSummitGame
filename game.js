@@ -1008,30 +1008,17 @@ class AIHunterGame {
     }
     
     saveScore(gameTime, captured) {
-        const score = {
-            name: this.user.name,
-            organization: this.user.organization,
-            captured: captured,
-            totalModels: this.aiModels.length,
-            gameTime: gameTime,
-            completionRate: (captured / this.aiModels.length) * 100,
-            timestamp: Date.now(),
-            date: new Date().toLocaleDateString()
-        };
-        
-        let scores = JSON.parse(localStorage.getItem('aiHunterScores') || '[]');
-        scores.push(score);
-        scores.sort((a, b) => {
-            if (b.captured !== a.captured) return b.captured - a.captured;
-            return a.gameTime - b.gameTime;
-        });
-        localStorage.setItem('aiHunterScores', JSON.stringify(scores));
+        if (window.leaderboard) {
+            window.leaderboard.saveScore(gameTime, captured, this.user.name, this.user.organization);
+        }
     }
     
-    showScoreboard() {
-        const scores = JSON.parse(localStorage.getItem('aiHunterScores') || '[]');
+    async showScoreboard() {
         this.showPage('scoreboard-page');
-        this.updateScoreboardDisplay(scores);
+        if (window.leaderboard) {
+            const scores = await window.leaderboard.loadScores();
+            this.updateScoreboardDisplay(scores);
+        }
     }
     
     updateScoreboardDisplay(scores) {
@@ -1086,5 +1073,5 @@ class AIHunterGame {
 }
 
 document.addEventListener('DOMContentLoaded', () => {
-    new AIHunterGame();
+    window.gameInstance = new AIHunterGame();
 });
