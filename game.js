@@ -889,7 +889,7 @@ class AIHunterGame {
             en: {
                 title: 'AI HUNTER',
                 tagline: 'Locate. Target. Capture.',
-                nameLabel: 'HUNTER ID',
+                nameLabel: 'HUNTER NAME',
                 orgLabel: 'ORGANIZATION',
                 startBtn: 'INITIALIZE',
                 infoText: 'Please enter correct name and organization',
@@ -909,7 +909,7 @@ class AIHunterGame {
             ja: {
                 title: 'AI ハンター',
                 tagline: '発見。狙い。捕獲。',
-                nameLabel: 'ハンターID',
+                nameLabel: 'ハンター名',
                 orgLabel: '組織',
                 startBtn: '開始',
                 infoText: '正しい名前と組織を入力してください',
