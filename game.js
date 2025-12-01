@@ -36,18 +36,20 @@ class AIHunterGame {
         this.aiPitch = 0;
         this.aiDistance = 0;
         
-        this.playerPosition = { x: 0, y: 0, z: 0 };
+        this.playerPosition = { lat: null, lng: null };
         this.lastCapturePosition = null;
         this.minMovementDistance = 1;
         this.distanceTraveled = 0;
         this.waitingForMovement = false;
         this.lastCapturedAI = null;
+        this.aiLocations = new Map();
+        this.gpsWatchId = null;
         
         this.aiVisible = false;
         this.aiInFrame = false;
         
         this.frameCenter = { x: 0, y: 0 };
-        this.frameRadius = 150;
+        this.frameRadius = 50; // Much smaller for precision
         
         this.spawnTimer = null;
         this.animationId = null;
@@ -215,56 +217,8 @@ class AIHunterGame {
         window.addEventListener('deviceorientation', handleOrientation);
         window.addEventListener('deviceorientationabsolute', handleOrientation);
         
-        if (window.DeviceMotionEvent) {
-            let velocity = { x: 0, y: 0, z: 0 };
-            let lastTime = Date.now();
-            
-            window.addEventListener('devicemotion', (e) => {
-                if (e.acceleration) {
-                    const currentTime = Date.now();
-                    const deltaTime = (currentTime - lastTime) / 1000;
-                    
-                    const threshold = 1.5;
-                    const walkingThreshold = 0.8;
-                    
-                    // Only count significant movement that indicates walking
-                    const accel = {
-                        x: Math.abs(e.acceleration.x) > threshold ? e.acceleration.x : 0,
-                        y: Math.abs(e.acceleration.y) > walkingThreshold ? e.acceleration.y : 0,
-                        z: Math.abs(e.acceleration.z) > threshold ? e.acceleration.z : 0
-                    };
-                    
-                    // Reduce sensitivity to prevent hand movement detection
-                    velocity.x += accel.x * deltaTime * 0.3;
-                    velocity.y += accel.y * deltaTime * 0.5;
-                    velocity.z += accel.z * deltaTime * 0.3;
-                    
-                    velocity.x *= 0.85;
-                    velocity.y *= 0.85;
-                    velocity.z *= 0.85;
-                    
-                    const oldPosition = { ...this.playerPosition };
-                    // Only register movement if there's consistent acceleration pattern
-                    if (Math.abs(accel.y) > walkingThreshold) {
-                        this.playerPosition.x += velocity.x * deltaTime;
-                        this.playerPosition.y += velocity.y * deltaTime;
-                        this.playerPosition.z += velocity.z * deltaTime;
-                    }
-                    
-                    if (this.waitingForMovement && this.lastCapturePosition) {
-                        const movementDelta = this.calculateDistance(oldPosition, this.playerPosition);
-                        this.distanceTraveled += movementDelta;
-                        this.updateDistanceCounter();
-                        
-                        if (this.distanceTraveled >= this.minMovementDistance) {
-                            this.spawnNextAI();
-                        }
-                    }
-                    
-                    lastTime = currentTime;
-                }
-            });
-        }
+        // Start GPS tracking
+        this.startGPSTracking();
     }
 
     fallbackToTouch() {
@@ -307,8 +261,8 @@ class AIHunterGame {
             
             const pitchDiff = this.aiPitch - this.pitch;
             
-            const fovH = 80;
-            const fovV = 60;
+            const fovH = 60;
+            const fovV = 45;
             
             this.aiVisible = Math.abs(angleDiff) < fovH && Math.abs(pitchDiff) < fovV;
             
@@ -528,45 +482,22 @@ class AIHunterGame {
         const uncaught = this.aiModels.filter(ai => !ai.caught);
         if (uncaught.length === 0) return;
         
-        this.currentAI = uncaught[Math.floor(Math.random() * uncaught.length)];
+        // Find AIs available at current location
+        const availableAIs = uncaught.filter(ai => this.isAIInRange(ai));
         
-        const positions = [
-            { type: 'ceiling', pitch: -45, angle: 'random', hint: { en: 'LOOK UP', ja: '上を見て' } },
-            { type: 'floor', pitch: 45, angle: 'random', hint: { en: 'LOOK DOWN', ja: '下を見て' } },
-            { type: 'left', pitch: 0, angle: 'left', hint: { en: 'TURN LEFT', ja: '左を向いて' } },
-            { type: 'right', pitch: 0, angle: 'right', hint: { en: 'TURN RIGHT', ja: '右を向いて' } },
-            { type: 'behind', pitch: 0, angle: 'behind', hint: { en: 'TURN AROUND', ja: '振り返って' } },
-            { type: 'up_left', pitch: -30, angle: 'left', hint: { en: 'LOOK UP LEFT', ja: '左上を見て' } },
-            { type: 'up_right', pitch: -30, angle: 'right', hint: { en: 'LOOK UP RIGHT', ja: '右上を見て' } },
-            { type: 'down_left', pitch: 30, angle: 'left', hint: { en: 'LOOK DOWN LEFT', ja: '左下を見て' } }
-        ];
-        
-        const position = positions[Math.floor(Math.random() * positions.length)];
-        
-        switch(position.angle) {
-            case 'random':
-                this.aiAngle = Math.random() * 360 - 180;
-                break;
-            case 'behind':
-                this.aiAngle = this.heading + 180;
-                break;
-            case 'left':
-                this.aiAngle = this.heading - 90;
-                break;
-            case 'right':
-                this.aiAngle = this.heading + 90;
-                break;
+        if (availableAIs.length === 0) {
+            this.showLocationHint();
+            return;
         }
         
-        while (this.aiAngle > 180) this.aiAngle -= 360;
-        while (this.aiAngle < -180) this.aiAngle += 360;
+        this.currentAI = availableAIs[Math.floor(Math.random() * availableAIs.length)];
         
-        this.aiPitch = position.pitch + (Math.random() - 0.5) * 15;
+        // Random positioning
+        this.aiAngle = Math.random() * 360 - 180;
+        this.aiPitch = (Math.random() - 0.5) * 120;
         this.aiPitch = Math.max(-60, Math.min(60, this.aiPitch));
         
-        this.currentAI.positionHint = position.hint[this.language];
-        
-        this.showSpawnNotification(position.hint[this.language]);
+        this.showSpawnNotification();
         this.updateTargetIndicator();
     }
 
@@ -757,6 +688,12 @@ class AIHunterGame {
     }
     
     startMovementPhase() {
+        if (!this.lastCapturedAI) {
+            this.spawnNextAI();
+            return;
+        }
+        
+        this.minMovementDistance = this.getMovementDistance(this.lastCapturedAI.rarity);
         this.waitingForMovement = true;
         this.distanceTraveled = 0;
         this.lastCapturePosition = { ...this.playerPosition };
@@ -767,7 +704,9 @@ class AIHunterGame {
         const counter = document.getElementById('distance-counter');
         if (counter) {
             const remaining = Math.max(0, this.minMovementDistance - this.distanceTraveled);
-            const walkText = this.language === 'ja' ? '1メートル歩いて次のターゲットをアンロック' : 'WALK 1 METER TO UNLOCK NEXT TARGET';
+            const walkText = this.language === 'ja' ? 
+                `${this.minMovementDistance.toFixed(0)}メートル歩いて次のターゲットをアンロック` : 
+                `WALK ${this.minMovementDistance.toFixed(0)} METERS TO UNLOCK NEXT TARGET`;
             const remainingText = this.language === 'ja' ? '残り' : 'remaining';
             
             counter.innerHTML = `
@@ -1085,10 +1024,124 @@ class AIHunterGame {
     }
     
     calculateDistance(pos1, pos2) {
-        const dx = pos1.x - pos2.x;
-        const dy = pos1.y - pos2.y;
-        const dz = pos1.z - pos2.z;
-        return Math.sqrt(dx*dx + dy*dy + dz*dz);
+        if (!pos1.lat || !pos2.lat) return 0;
+        
+        const R = 6371e3;
+        const φ1 = pos1.lat * Math.PI/180;
+        const φ2 = pos2.lat * Math.PI/180;
+        const Δφ = (pos2.lat-pos1.lat) * Math.PI/180;
+        const Δλ = (pos2.lng-pos1.lng) * Math.PI/180;
+        
+        const a = Math.sin(Δφ/2) * Math.sin(Δφ/2) +
+                  Math.cos(φ1) * Math.cos(φ2) *
+                  Math.sin(Δλ/2) * Math.sin(Δλ/2);
+        const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+        
+        return R * c;
+    }
+    
+    startGPSTracking() {
+        if (!navigator.geolocation) {
+            console.log('GPS not available');
+            return;
+        }
+        
+        const options = {
+            enableHighAccuracy: true,
+            timeout: 5000,
+            maximumAge: 1000
+        };
+        
+        this.gpsWatchId = navigator.geolocation.watchPosition(
+            (position) => {
+                const newPos = {
+                    lat: position.coords.latitude,
+                    lng: position.coords.longitude
+                };
+                
+                if (this.playerPosition.lat) {
+                    const distance = this.calculateDistance(this.playerPosition, newPos);
+                    if (distance > 0.5) {
+                        this.playerPosition = newPos;
+                        
+                        if (this.waitingForMovement && this.lastCapturePosition.lat) {
+                            this.distanceTraveled = this.calculateDistance(this.lastCapturePosition, this.playerPosition);
+                            this.updateDistanceCounter();
+                            
+                            if (this.distanceTraveled >= this.minMovementDistance) {
+                                this.spawnNextAI();
+                            }
+                        }
+                    }
+                } else {
+                    this.playerPosition = newPos;
+                    this.generateAILocations();
+                }
+            },
+            (error) => console.log('GPS error:', error.message),
+            options
+        );
+    }
+    
+    generateAILocations() {
+        if (!this.playerPosition.lat) return;
+        
+        this.aiModels.forEach(ai => {
+            const distance = this.getMovementDistance(ai.rarity);
+            const angle = Math.random() * 2 * Math.PI;
+            
+            const lat = this.playerPosition.lat + (distance / 111320) * Math.cos(angle);
+            const lng = this.playerPosition.lng + (distance / (111320 * Math.cos(this.playerPosition.lat * Math.PI/180))) * Math.sin(angle);
+            
+            this.aiLocations.set(ai.name, { lat, lng, distance });
+        });
+    }
+    
+    getMovementDistance(rarity) {
+        switch(rarity) {
+            case 'common': return 1 + Math.random();
+            case 'rare': return 2 + Math.random();
+            case 'epic': return 3 + Math.random();
+            case 'legendary': return 3 + Math.random();
+            default: return 2;
+        }
+    }
+    
+    isAIInRange(ai) {
+        if (!this.playerPosition.lat || !this.aiLocations.has(ai.name)) return false;
+        
+        const aiLocation = this.aiLocations.get(ai.name);
+        const distance = this.calculateDistance(this.playerPosition, aiLocation);
+        return distance <= 8; // 8 meter detection radius
+    }
+    
+    showLocationHint() {
+        const hint = document.createElement('div');
+        hint.style.cssText = `
+            position: fixed;
+            bottom: 200px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(255, 51, 102, 0.9);
+            border: 2px solid #ff3366;
+            border-radius: 12px;
+            padding: 16px;
+            color: white;
+            font-family: 'Orbitron', sans-serif;
+            font-size: 12px;
+            text-align: center;
+            z-index: 1000;
+            max-width: 280px;
+        `;
+        
+        const moveText = this.language === 'ja' ? 
+            '🚶 移動してAIを探してください\n近くにAIが見つかりません' : 
+            '🚶 MOVE AROUND TO FIND AIs\nNo AIs detected nearby';
+            
+        hint.innerHTML = moveText.replace('\n', '<br>');
+        document.body.appendChild(hint);
+        
+        setTimeout(() => hint.remove(), 3000);
     }
 }
 
