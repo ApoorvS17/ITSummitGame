@@ -395,7 +395,9 @@ body {
     transform: translateY(-50%);
     font-family: 'Orbitron', sans-serif;
     font-size: 0.85rem;
+    font-weight: bold;
     color: var(--primary);
+    text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.8);
     white-space: nowrap;
 }
 
@@ -479,20 +481,23 @@ body {
 }
 
 .target-info {
-    background: var(--glass);
-    border: 1px solid var(--success);
+    background: rgba(0, 0, 0, 0.9);
+    border: 2px solid var(--success);
     border-radius: 8px;
     padding: 10px 20px;
     text-align: center;
     backdrop-filter: blur(10px);
+    box-shadow: 0 0 20px rgba(16, 185, 129, 0.3);
 }
 
 .target-label {
     display: block;
     font-size: 0.65rem;
+    font-weight: bold;
     letter-spacing: 2px;
     color: var(--success);
     margin-bottom: 4px;
+    text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.8);
 }
 
 #target-name {
@@ -500,6 +505,7 @@ body {
     font-size: 1.1rem;
     font-weight: 700;
     color: white;
+    text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.8);
 }
 
 #scan-indicator {
@@ -510,6 +516,11 @@ body {
     text-align: center;
     z-index: 100;
     transition: opacity 0.3s ease;
+    background: rgba(0, 0, 0, 0.7);
+    border: 1px solid rgba(0, 240, 255, 0.3);
+    border-radius: 8px;
+    padding: 12px 20px;
+    backdrop-filter: blur(5px);
 }
 
 #scan-indicator.hidden {
@@ -520,15 +531,19 @@ body {
 .scan-text {
     font-family: 'Orbitron', sans-serif;
     font-size: 0.85rem;
+    font-weight: bold;
     letter-spacing: 3px;
     color: var(--primary);
+    text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.8);
     animation: scanPulse 1.5s ease-in-out infinite;
 }
 
 .scan-hint {
     font-size: 0.75rem;
-    color: rgba(255,255,255,0.5);
+    font-weight: bold;
+    color: rgba(255,255,255,0.8);
     margin-top: 8px;
+    text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.8);
 }
 
 @keyframes scanPulse {
@@ -595,8 +610,10 @@ body {
 #capture-label {
     margin-top: 10px;
     font-size: 0.7rem;
+    font-weight: bold;
     letter-spacing: 2px;
-    color: rgba(255,255,255,0.5);
+    color: rgba(255,255,255,0.8);
+    text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.8);
     transition: color 0.3s ease;
 }
 
