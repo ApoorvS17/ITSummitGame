@@ -217,9 +217,10 @@ class AIHunterGame {
         window.addEventListener('deviceorientation', handleOrientation);
         window.addEventListener('deviceorientationabsolute', handleOrientation);
         
-        // Enhanced step detection for actual walking
+        // Balanced step detection - prevents hand waving but allows walking
         if (window.DeviceMotionEvent) {
             let lastAccel = 0;
+            let stepCandidates = [];
             
             window.addEventListener('devicemotion', (e) => {
                 if (e.acceleration) {
@@ -236,26 +237,33 @@ class AIHunterGame {
                         yAccel: yAccel,
                         time: currentTime 
                     });
-                    if (this.movementBuffer.length > 30) this.movementBuffer.shift();
+                    if (this.movementBuffer.length > 20) this.movementBuffer.shift();
                     
-                    // Balanced step detection - works but prevents hand waving
+                    // Step detection with moderate validation
                     const timeSinceLastStep = currentTime - this.lastStepTime;
-                    const isValidStepTiming = timeSinceLastStep > 400; // More lenient timing
-                    const isModerateAcceleration = totalAccel > 4; // Lower threshold
+                    const isValidStepTiming = timeSinceLastStep > 500; // Prevent rapid hand movements
+                    const isWalkingAcceleration = totalAccel > 5 && totalAccel < 25; // Walking range
+                    const hasVerticalComponent = yAccel > 2; // Walking has vertical bounce
                     const isPeakAcceleration = totalAccel > lastAccel;
                     
-                    if (isValidStepTiming && isModerateAcceleration && isPeakAcceleration) {
-                        // Simple step counting with basic validation
-                        this.stepCount++;
-                        this.lastStepTime = currentTime;
+                    if (isValidStepTiming && isWalkingAcceleration && hasVerticalComponent && isPeakAcceleration) {
+                        // Add to step candidates for validation
+                        stepCandidates.push(currentTime);
+                        stepCandidates = stepCandidates.filter(time => currentTime - time < 3000); // Keep last 3 seconds
                         
-                        if (this.waitingForMovement) {
-                            this.distanceTraveled = this.stepCount * 0.7;
-                            this.updateDistanceCounter();
+                        // Require consistent pattern (at least 2 steps in 3 seconds)
+                        if (stepCandidates.length >= 2) {
+                            this.stepCount++;
+                            this.lastStepTime = currentTime;
                             
-                            if (this.distanceTraveled >= this.minMovementDistance) {
-                                this.stepCount = 0;
-                                this.spawnNextAI();
+                            if (this.waitingForMovement) {
+                                this.distanceTraveled = this.stepCount * 0.7;
+                                this.updateDistanceCounter();
+                                
+                                if (this.distanceTraveled >= this.minMovementDistance) {
+                                    this.stepCount = 0;
+                                    this.spawnNextAI();
+                                }
                             }
                         }
                     }
