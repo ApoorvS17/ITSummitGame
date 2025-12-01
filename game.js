@@ -736,10 +736,10 @@ class AIHunterGame {
             const remainingText = this.language === 'ja' ? '残り' : 'remaining';
             
             counter.innerHTML = `
-                <div>${walkText}</div>
-                <div style="font-size: 18px; margin: 8px 0;">${remaining.toFixed(1)}m ${remainingText}</div>
-                <div style="width: 200px; height: 8px; background: rgba(255,255,255,0.2); border-radius: 4px; margin: 0 auto;">
-                    <div style="width: ${Math.min(100, (this.distanceTraveled / this.minMovementDistance) * 100)}%; height: 100%; background: var(--primary); border-radius: 4px; transition: width 0.3s;"></div>
+                <div style="color: white; text-shadow: 2px 2px 4px rgba(0,0,0,0.8);">${walkText}</div>
+                <div style="font-size: 18px; margin: 8px 0; color: #00f0ff; font-weight: bold; text-shadow: 2px 2px 4px rgba(0,0,0,0.8);">${remaining.toFixed(1)}m ${remainingText}</div>
+                <div style="width: 200px; height: 10px; background: rgba(0,0,0,0.5); border: 1px solid rgba(255,255,255,0.3); border-radius: 5px; margin: 0 auto;">
+                    <div style="width: ${Math.min(100, (this.distanceTraveled / this.minMovementDistance) * 100)}%; height: 100%; background: linear-gradient(90deg, #00f0ff, #10b981); border-radius: 4px; transition: width 0.3s; box-shadow: 0 0 10px rgba(0,240,255,0.5);"></div>
                 </div>
             `;
         }
@@ -753,16 +753,19 @@ class AIHunterGame {
             bottom: 200px;
             left: 50%;
             transform: translateX(-50%);
-            background: rgba(0, 240, 255, 0.1);
-            border: 2px solid var(--primary);
+            background: rgba(0, 0, 0, 0.9);
+            border: 2px solid #00f0ff;
             border-radius: 12px;
             padding: 16px;
             font-family: 'Orbitron', sans-serif;
             font-size: 12px;
-            color: var(--primary);
+            font-weight: bold;
+            color: white;
             letter-spacing: 1px;
             text-align: center;
             z-index: 1000;
+            box-shadow: 0 0 20px rgba(0, 240, 255, 0.3);
+            backdrop-filter: blur(10px);
         `;
         document.body.appendChild(counter);
         this.updateDistanceCounter();
