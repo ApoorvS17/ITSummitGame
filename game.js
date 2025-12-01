@@ -36,14 +36,13 @@ class AIHunterGame {
         this.aiPitch = 0;
         this.aiDistance = 0;
         
-        this.playerPosition = { lat: null, lng: null };
-        this.lastCapturePosition = null;
+        this.stepCount = 0;
+        this.lastStepTime = 0;
         this.minMovementDistance = 1;
         this.distanceTraveled = 0;
         this.waitingForMovement = false;
         this.lastCapturedAI = null;
-        this.aiLocations = new Map();
-        this.gpsWatchId = null;
+        this.movementBuffer = [];
         
         this.aiVisible = false;
         this.aiInFrame = false;
@@ -217,8 +216,42 @@ class AIHunterGame {
         window.addEventListener('deviceorientation', handleOrientation);
         window.addEventListener('deviceorientationabsolute', handleOrientation);
         
-        // Start GPS tracking
-        this.startGPSTracking();
+        // Step detection for movement
+        if (window.DeviceMotionEvent) {
+            let lastAccel = 0;
+            
+            window.addEventListener('devicemotion', (e) => {
+                if (e.acceleration) {
+                    const currentTime = Date.now();
+                    const totalAccel = Math.sqrt(
+                        (e.acceleration.x || 0) ** 2 + 
+                        (e.acceleration.y || 0) ** 2 + 
+                        (e.acceleration.z || 0) ** 2
+                    );
+                    
+                    this.movementBuffer.push({ accel: totalAccel, time: currentTime });
+                    if (this.movementBuffer.length > 20) this.movementBuffer.shift();
+                    
+                    // Step detection
+                    if (totalAccel > 3 && totalAccel > lastAccel && currentTime - this.lastStepTime > 300) {
+                        this.stepCount++;
+                        this.lastStepTime = currentTime;
+                        
+                        if (this.waitingForMovement) {
+                            this.distanceTraveled = this.stepCount * 0.7; // 0.7m per step
+                            this.updateDistanceCounter();
+                            
+                            if (this.distanceTraveled >= this.minMovementDistance) {
+                                this.stepCount = 0;
+                                this.spawnNextAI();
+                            }
+                        }
+                    }
+                    
+                    lastAccel = totalAccel;
+                }
+            });
+        }
     }
 
     fallbackToTouch() {
@@ -482,15 +515,7 @@ class AIHunterGame {
         const uncaught = this.aiModels.filter(ai => !ai.caught);
         if (uncaught.length === 0) return;
         
-        // Find AIs available at current location
-        const availableAIs = uncaught.filter(ai => this.isAIInRange(ai));
-        
-        if (availableAIs.length === 0) {
-            this.showLocationHint();
-            return;
-        }
-        
-        this.currentAI = availableAIs[Math.floor(Math.random() * availableAIs.length)];
+        this.currentAI = uncaught[Math.floor(Math.random() * uncaught.length)];
         
         // Random positioning
         this.aiAngle = Math.random() * 360 - 180;
@@ -658,33 +683,34 @@ class AIHunterGame {
         if (hint) hint.remove();
     }
     
-    showSpawnNotification(hint = null) {
-        if (!hint) {
-            hint = this.language === 'ja' ? '新しいターゲットが検出されました！' : 'NEW TARGET DETECTED!';
-        }
+    showSpawnNotification() {
         const notification = document.createElement('div');
         notification.style.cssText = `
             position: fixed;
             top: 20px;
             left: 50%;
             transform: translateX(-50%);
-            background: rgba(255, 51, 102, 0.9);
+            background: rgba(0, 0, 0, 0.9);
+            border: 2px solid rgba(255, 51, 102, 0.8);
             color: white;
             padding: 12px 24px;
             border-radius: 8px;
             font-family: 'Orbitron', sans-serif;
-            font-size: 11px;
+            font-size: 12px;
+            font-weight: bold;
             letter-spacing: 1px;
             z-index: 1000;
             animation: slideDown 0.3s ease;
             text-align: center;
             max-width: 280px;
+            box-shadow: 0 0 20px rgba(255, 51, 102, 0.5);
+            text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.8);
         `;
         const targetText = this.language === 'ja' ? 'ターゲット発見' : 'TARGET DETECTED';
-        notification.innerHTML = `<div style="margin-bottom: 4px;">🎯 ${targetText}</div><div style="font-size: 10px; opacity: 0.8;">${hint}</div>`;
+        notification.innerHTML = `<div style="color: #ff3366;">🎯 ${targetText}</div><div style="font-size: 11px; color: #00f0ff; margin-top: 4px;">${this.currentAI.name}</div>`;
         document.body.appendChild(notification);
         
-        setTimeout(() => notification.remove(), 5000);
+        setTimeout(() => notification.remove(), 4000);
     }
     
     startMovementPhase() {
@@ -696,7 +722,7 @@ class AIHunterGame {
         this.minMovementDistance = this.getMovementDistance(this.lastCapturedAI.rarity);
         this.waitingForMovement = true;
         this.distanceTraveled = 0;
-        this.lastCapturePosition = { ...this.playerPosition };
+        this.stepCount = 0;
         this.showDistanceCounter();
     }
     
@@ -1023,80 +1049,6 @@ class AIHunterGame {
         return `${minutes}:${seconds.toString().padStart(2, '0')}`;
     }
     
-    calculateDistance(pos1, pos2) {
-        if (!pos1.lat || !pos2.lat) return 0;
-        
-        const R = 6371e3;
-        const φ1 = pos1.lat * Math.PI/180;
-        const φ2 = pos2.lat * Math.PI/180;
-        const Δφ = (pos2.lat-pos1.lat) * Math.PI/180;
-        const Δλ = (pos2.lng-pos1.lng) * Math.PI/180;
-        
-        const a = Math.sin(Δφ/2) * Math.sin(Δφ/2) +
-                  Math.cos(φ1) * Math.cos(φ2) *
-                  Math.sin(Δλ/2) * Math.sin(Δλ/2);
-        const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
-        
-        return R * c;
-    }
-    
-    startGPSTracking() {
-        if (!navigator.geolocation) {
-            console.log('GPS not available');
-            return;
-        }
-        
-        const options = {
-            enableHighAccuracy: true,
-            timeout: 5000,
-            maximumAge: 1000
-        };
-        
-        this.gpsWatchId = navigator.geolocation.watchPosition(
-            (position) => {
-                const newPos = {
-                    lat: position.coords.latitude,
-                    lng: position.coords.longitude
-                };
-                
-                if (this.playerPosition.lat) {
-                    const distance = this.calculateDistance(this.playerPosition, newPos);
-                    if (distance > 0.5) {
-                        this.playerPosition = newPos;
-                        
-                        if (this.waitingForMovement && this.lastCapturePosition.lat) {
-                            this.distanceTraveled = this.calculateDistance(this.lastCapturePosition, this.playerPosition);
-                            this.updateDistanceCounter();
-                            
-                            if (this.distanceTraveled >= this.minMovementDistance) {
-                                this.spawnNextAI();
-                            }
-                        }
-                    }
-                } else {
-                    this.playerPosition = newPos;
-                    this.generateAILocations();
-                }
-            },
-            (error) => console.log('GPS error:', error.message),
-            options
-        );
-    }
-    
-    generateAILocations() {
-        if (!this.playerPosition.lat) return;
-        
-        this.aiModels.forEach(ai => {
-            const distance = this.getMovementDistance(ai.rarity);
-            const angle = Math.random() * 2 * Math.PI;
-            
-            const lat = this.playerPosition.lat + (distance / 111320) * Math.cos(angle);
-            const lng = this.playerPosition.lng + (distance / (111320 * Math.cos(this.playerPosition.lat * Math.PI/180))) * Math.sin(angle);
-            
-            this.aiLocations.set(ai.name, { lat, lng, distance });
-        });
-    }
-    
     getMovementDistance(rarity) {
         switch(rarity) {
             case 'common': return 1 + Math.random();
@@ -1105,43 +1057,6 @@ class AIHunterGame {
             case 'legendary': return 3 + Math.random();
             default: return 2;
         }
-    }
-    
-    isAIInRange(ai) {
-        if (!this.playerPosition.lat || !this.aiLocations.has(ai.name)) return false;
-        
-        const aiLocation = this.aiLocations.get(ai.name);
-        const distance = this.calculateDistance(this.playerPosition, aiLocation);
-        return distance <= 8; // 8 meter detection radius
-    }
-    
-    showLocationHint() {
-        const hint = document.createElement('div');
-        hint.style.cssText = `
-            position: fixed;
-            bottom: 200px;
-            left: 50%;
-            transform: translateX(-50%);
-            background: rgba(255, 51, 102, 0.9);
-            border: 2px solid #ff3366;
-            border-radius: 12px;
-            padding: 16px;
-            color: white;
-            font-family: 'Orbitron', sans-serif;
-            font-size: 12px;
-            text-align: center;
-            z-index: 1000;
-            max-width: 280px;
-        `;
-        
-        const moveText = this.language === 'ja' ? 
-            '🚶 移動してAIを探してください\n近くにAIが見つかりません' : 
-            '🚶 MOVE AROUND TO FIND AIs\nNo AIs detected nearby';
-            
-        hint.innerHTML = moveText.replace('\n', '<br>');
-        document.body.appendChild(hint);
-        
-        setTimeout(() => hint.remove(), 3000);
     }
 }
 
