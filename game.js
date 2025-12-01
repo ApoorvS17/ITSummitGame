@@ -43,6 +43,7 @@ class AIHunterGame {
         this.waitingForMovement = false;
         this.lastCapturedAI = null;
         this.movementBuffer = [];
+        this.walkingSteps = [];
         
         this.aiVisible = false;
         this.aiInFrame = false;
@@ -216,34 +217,52 @@ class AIHunterGame {
         window.addEventListener('deviceorientation', handleOrientation);
         window.addEventListener('deviceorientationabsolute', handleOrientation);
         
-        // Step detection for movement
+        // Enhanced step detection for actual walking
         if (window.DeviceMotionEvent) {
             let lastAccel = 0;
             
             window.addEventListener('devicemotion', (e) => {
                 if (e.acceleration) {
                     const currentTime = Date.now();
+                    const yAccel = Math.abs(e.acceleration.y || 0);
                     const totalAccel = Math.sqrt(
                         (e.acceleration.x || 0) ** 2 + 
                         (e.acceleration.y || 0) ** 2 + 
                         (e.acceleration.z || 0) ** 2
                     );
                     
-                    this.movementBuffer.push({ accel: totalAccel, time: currentTime });
-                    if (this.movementBuffer.length > 20) this.movementBuffer.shift();
+                    this.movementBuffer.push({ 
+                        accel: totalAccel, 
+                        yAccel: yAccel,
+                        time: currentTime 
+                    });
+                    if (this.movementBuffer.length > 30) this.movementBuffer.shift();
                     
-                    // Step detection
-                    if (totalAccel > 3 && totalAccel > lastAccel && currentTime - this.lastStepTime > 300) {
-                        this.stepCount++;
-                        this.lastStepTime = currentTime;
+                    // Enhanced step detection - stricter criteria
+                    const timeSinceLastStep = currentTime - this.lastStepTime;
+                    const isValidStepTiming = timeSinceLastStep > 500 && timeSinceLastStep < 1200; // Walking cadence
+                    const isStrongAcceleration = totalAccel > 8; // Higher threshold
+                    const isVerticalDominant = yAccel > (totalAccel * 0.4); // Y-axis must be significant
+                    const isPeakAcceleration = totalAccel > lastAccel;
+                    
+                    if (isValidStepTiming && isStrongAcceleration && isVerticalDominant && isPeakAcceleration) {
+                        this.walkingSteps.push(currentTime);
+                        if (this.walkingSteps.length > 5) this.walkingSteps.shift();
                         
-                        if (this.waitingForMovement) {
-                            this.distanceTraveled = this.stepCount * 0.7; // 0.7m per step
-                            this.updateDistanceCounter();
+                        // Require consistent walking pattern (3+ steps)
+                        if (this.walkingSteps.length >= 3 && this.isConsistentWalking()) {
+                            this.stepCount++;
+                            this.lastStepTime = currentTime;
                             
-                            if (this.distanceTraveled >= this.minMovementDistance) {
-                                this.stepCount = 0;
-                                this.spawnNextAI();
+                            if (this.waitingForMovement) {
+                                this.distanceTraveled = this.stepCount * 0.7;
+                                this.updateDistanceCounter();
+                                
+                                if (this.distanceTraveled >= this.minMovementDistance) {
+                                    this.stepCount = 0;
+                                    this.walkingSteps = [];
+                                    this.spawnNextAI();
+                                }
                             }
                         }
                     }
@@ -723,6 +742,7 @@ class AIHunterGame {
         this.waitingForMovement = true;
         this.distanceTraveled = 0;
         this.stepCount = 0;
+        this.walkingSteps = [];
         this.showDistanceCounter();
     }
     
@@ -1060,6 +1080,26 @@ class AIHunterGame {
             case 'legendary': return 3 + Math.random();
             default: return 2;
         }
+    }
+    
+    isConsistentWalking() {
+        if (this.walkingSteps.length < 3) return false;
+        
+        // Check if steps have consistent timing (walking rhythm)
+        const intervals = [];
+        for (let i = 1; i < this.walkingSteps.length; i++) {
+            intervals.push(this.walkingSteps[i] - this.walkingSteps[i-1]);
+        }
+        
+        // Walking should have consistent intervals (500-1200ms)
+        const avgInterval = intervals.reduce((sum, interval) => sum + interval, 0) / intervals.length;
+        const isConsistentTiming = avgInterval >= 500 && avgInterval <= 1200;
+        
+        // Check variance - walking has low variance in step timing
+        const variance = intervals.reduce((sum, interval) => sum + Math.pow(interval - avgInterval, 2), 0) / intervals.length;
+        const isLowVariance = variance < 100000; // Low variance indicates consistent walking
+        
+        return isConsistentTiming && isLowVariance;
     }
 }
 
