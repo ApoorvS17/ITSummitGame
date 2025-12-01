@@ -238,31 +238,24 @@ class AIHunterGame {
                     });
                     if (this.movementBuffer.length > 30) this.movementBuffer.shift();
                     
-                    // Enhanced step detection - stricter criteria
+                    // Balanced step detection - works but prevents hand waving
                     const timeSinceLastStep = currentTime - this.lastStepTime;
-                    const isValidStepTiming = timeSinceLastStep > 500 && timeSinceLastStep < 1200; // Walking cadence
-                    const isStrongAcceleration = totalAccel > 8; // Higher threshold
-                    const isVerticalDominant = yAccel > (totalAccel * 0.4); // Y-axis must be significant
+                    const isValidStepTiming = timeSinceLastStep > 400; // More lenient timing
+                    const isModerateAcceleration = totalAccel > 4; // Lower threshold
                     const isPeakAcceleration = totalAccel > lastAccel;
                     
-                    if (isValidStepTiming && isStrongAcceleration && isVerticalDominant && isPeakAcceleration) {
-                        this.walkingSteps.push(currentTime);
-                        if (this.walkingSteps.length > 5) this.walkingSteps.shift();
+                    if (isValidStepTiming && isModerateAcceleration && isPeakAcceleration) {
+                        // Simple step counting with basic validation
+                        this.stepCount++;
+                        this.lastStepTime = currentTime;
                         
-                        // Require consistent walking pattern (3+ steps)
-                        if (this.walkingSteps.length >= 3 && this.isConsistentWalking()) {
-                            this.stepCount++;
-                            this.lastStepTime = currentTime;
+                        if (this.waitingForMovement) {
+                            this.distanceTraveled = this.stepCount * 0.7;
+                            this.updateDistanceCounter();
                             
-                            if (this.waitingForMovement) {
-                                this.distanceTraveled = this.stepCount * 0.7;
-                                this.updateDistanceCounter();
-                                
-                                if (this.distanceTraveled >= this.minMovementDistance) {
-                                    this.stepCount = 0;
-                                    this.walkingSteps = [];
-                                    this.spawnNextAI();
-                                }
+                            if (this.distanceTraveled >= this.minMovementDistance) {
+                                this.stepCount = 0;
+                                this.spawnNextAI();
                             }
                         }
                     }
@@ -742,7 +735,6 @@ class AIHunterGame {
         this.waitingForMovement = true;
         this.distanceTraveled = 0;
         this.stepCount = 0;
-        this.walkingSteps = [];
         this.showDistanceCounter();
     }
     
@@ -1082,25 +1074,7 @@ class AIHunterGame {
         }
     }
     
-    isConsistentWalking() {
-        if (this.walkingSteps.length < 3) return false;
-        
-        // Check if steps have consistent timing (walking rhythm)
-        const intervals = [];
-        for (let i = 1; i < this.walkingSteps.length; i++) {
-            intervals.push(this.walkingSteps[i] - this.walkingSteps[i-1]);
-        }
-        
-        // Walking should have consistent intervals (500-1200ms)
-        const avgInterval = intervals.reduce((sum, interval) => sum + interval, 0) / intervals.length;
-        const isConsistentTiming = avgInterval >= 500 && avgInterval <= 1200;
-        
-        // Check variance - walking has low variance in step timing
-        const variance = intervals.reduce((sum, interval) => sum + Math.pow(interval - avgInterval, 2), 0) / intervals.length;
-        const isLowVariance = variance < 100000; // Low variance indicates consistent walking
-        
-        return isConsistentTiming && isLowVariance;
-    }
+
 }
 
 document.addEventListener('DOMContentLoaded', () => {
