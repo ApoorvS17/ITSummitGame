@@ -100,9 +100,7 @@ class AIHunterGame {
             this.showInventory();
         });
 
-        document.getElementById('scoreboard-btn').addEventListener('click', () => {
-            this.showScoreboard();
-        });
+
 
         document.getElementById('back-from-scoreboard').addEventListener('click', () => {
             this.showGame();
