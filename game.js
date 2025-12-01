@@ -36,19 +36,12 @@ class AIHunterGame {
         this.aiPitch = 0;
         this.aiDistance = 0;
         
-        this.playerPosition = { lat: null, lng: null };
+        this.playerPosition = { x: 0, y: 0, z: 0 };
         this.lastCapturePosition = null;
-        this.minMovementDistance = 5;
+        this.minMovementDistance = 1;
         this.distanceTraveled = 0;
         this.waitingForMovement = false;
         this.lastCapturedAI = null;
-        this.stepCount = 0;
-        this.lastStepTime = 0;
-        this.movementBuffer = [];
-        this.isWalking = false;
-        this.gyroData = { x: 0, y: 0, z: 0 };
-        this.spawnTimer = null;
-        this.aiSpawnDelay = 15000; // 15 seconds
         
         this.aiVisible = false;
         this.aiInFrame = false;
@@ -222,60 +215,53 @@ class AIHunterGame {
         window.addEventListener('deviceorientation', handleOrientation);
         window.addEventListener('deviceorientationabsolute', handleOrientation);
         
-        // Enhanced step detection
         if (window.DeviceMotionEvent) {
-            let lastAccel = 0;
-            let peakCount = 0;
+            let velocity = { x: 0, y: 0, z: 0 };
+            let lastTime = Date.now();
             
             window.addEventListener('devicemotion', (e) => {
-                if (e.acceleration && e.rotationRate) {
+                if (e.acceleration) {
                     const currentTime = Date.now();
+                    const deltaTime = (currentTime - lastTime) / 1000;
                     
-                    // Store gyroscope data for movement validation
-                    this.gyroData = {
-                        x: Math.abs(e.rotationRate.alpha || 0),
-                        y: Math.abs(e.rotationRate.beta || 0),
-                        z: Math.abs(e.rotationRate.gamma || 0)
+                    const threshold = 1.5;
+                    const walkingThreshold = 0.8;
+                    
+                    // Only count significant movement that indicates walking
+                    const accel = {
+                        x: Math.abs(e.acceleration.x) > threshold ? e.acceleration.x : 0,
+                        y: Math.abs(e.acceleration.y) > walkingThreshold ? e.acceleration.y : 0,
+                        z: Math.abs(e.acceleration.z) > threshold ? e.acceleration.z : 0
                     };
                     
-                    // Calculate total acceleration
-                    const totalAccel = Math.sqrt(
-                        (e.acceleration.x || 0) ** 2 + 
-                        (e.acceleration.y || 0) ** 2 + 
-                        (e.acceleration.z || 0) ** 2
-                    );
+                    // Reduce sensitivity to prevent hand movement detection
+                    velocity.x += accel.x * deltaTime * 0.3;
+                    velocity.y += accel.y * deltaTime * 0.5;
+                    velocity.z += accel.z * deltaTime * 0.3;
                     
-                    this.movementBuffer.push({ accel: totalAccel, time: currentTime, gyro: this.gyroData });
-                    if (this.movementBuffer.length > 30) this.movementBuffer.shift();
+                    velocity.x *= 0.85;
+                    velocity.y *= 0.85;
+                    velocity.z *= 0.85;
                     
-                    // Step detection with lower threshold
-                    if (totalAccel > 3 && totalAccel > lastAccel && currentTime - this.lastStepTime > 250) {
-                        peakCount++;
-                        this.lastStepTime = currentTime;
+                    const oldPosition = { ...this.playerPosition };
+                    // Only register movement if there's consistent acceleration pattern
+                    if (Math.abs(accel.y) > walkingThreshold) {
+                        this.playerPosition.x += velocity.x * deltaTime;
+                        this.playerPosition.y += velocity.y * deltaTime;
+                        this.playerPosition.z += velocity.z * deltaTime;
+                    }
+                    
+                    if (this.waitingForMovement && this.lastCapturePosition) {
+                        const movementDelta = this.calculateDistance(oldPosition, this.playerPosition);
+                        this.distanceTraveled += movementDelta;
+                        this.updateDistanceCounter();
                         
-                        // Validate it's walking (not just wrist movement)
-                        if (this.validateWalkingMovement()) {
-                            this.stepCount++;
-                            this.isWalking = true;
-                            
-                            if (this.waitingForMovement) {
-                                this.distanceTraveled = this.stepCount * 0.7; // 0.7m per step
-                                this.updateDistanceCounter();
-                                
-                                if (this.distanceTraveled >= this.minMovementDistance) {
-                                    this.stepCount = 0;
-                                    this.spawnNextAI();
-                                }
-                            }
+                        if (this.distanceTraveled >= this.minMovementDistance) {
+                            this.spawnNextAI();
                         }
                     }
                     
-                    lastAccel = totalAccel;
-                    
-                    // Reset walking status if no movement for 2 seconds
-                    if (currentTime - this.lastStepTime > 2000) {
-                        this.isWalking = false;
-                    }
+                    lastTime = currentTime;
                 }
             });
         }
@@ -407,9 +393,8 @@ class AIHunterGame {
             document.getElementById('target-name').textContent = this.currentAI.name;
             
             const targetLabel = document.querySelector('.target-label');
-            if (!this.aiVisible) {
-                // Calculate direction hint dynamically based on current heading
-                targetLabel.textContent = this.calculateDirectionHint();
+            if (this.currentAI.positionHint && !this.aiVisible) {
+                targetLabel.textContent = this.currentAI.positionHint;
             } else {
                 targetLabel.textContent = this.language === 'ja' ? 'ターゲット獲得' : 'TARGET ACQUIRED';
             }
@@ -503,23 +488,11 @@ class AIHunterGame {
         this.ctx.fillStyle = '#000';
         this.ctx.fillText(this.currentAI.emoji || '🤖', x, floatY);
         
-        // Draw name with better readability
-        this.ctx.font = 'bold 16px Orbitron, sans-serif';
-        
-        // Draw background for text
-        const textMetrics = this.ctx.measureText(this.currentAI.name);
-        const textWidth = textMetrics.width;
-        const textHeight = 20;
-        const textX = x - textWidth / 2 - 8;
-        const textY = floatY + size + 5;
-        
-        this.ctx.fillStyle = 'rgba(0, 0, 0, 0.8)';
-        this.ctx.fillRect(textX, textY, textWidth + 16, textHeight + 8);
-        
-        // Draw text with strong outline
+        // Draw name
+        this.ctx.font = 'bold 14px Orbitron, sans-serif';
         this.ctx.fillStyle = 'white';
-        this.ctx.strokeStyle = 'rgba(0, 0, 0, 1)';
-        this.ctx.lineWidth = 3;
+        this.ctx.strokeStyle = 'rgba(0, 0, 0, 0.8)';
+        this.ctx.lineWidth = 4;
         this.ctx.strokeText(this.currentAI.name, x, floatY + size + 15);
         this.ctx.fillText(this.currentAI.name, x, floatY + size + 15);
         
@@ -548,13 +521,7 @@ class AIHunterGame {
             return;
         }
         
-        // Add spawn delay to make game more challenging
-        this.showSpawnDelay();
-        
-        this.spawnTimer = setTimeout(() => {
-            this.spawnAI();
-            this.hideSpawnDelay();
-        }, this.aiSpawnDelay);
+        this.spawnAI();
     }
 
     spawnAI() {
@@ -563,30 +530,60 @@ class AIHunterGame {
         
         this.currentAI = uncaught[Math.floor(Math.random() * uncaught.length)];
         
-        // Generate challenging random position
-        this.aiAngle = Math.random() * 360 - 180;
-        this.aiPitch = (Math.random() - 0.5) * 120;
+        const positions = [
+            { type: 'ceiling', pitch: -45, angle: 'random', hint: { en: 'LOOK UP', ja: '上を見て' } },
+            { type: 'floor', pitch: 45, angle: 'random', hint: { en: 'LOOK DOWN', ja: '下を見て' } },
+            { type: 'left', pitch: 0, angle: 'left', hint: { en: 'TURN LEFT', ja: '左を向いて' } },
+            { type: 'right', pitch: 0, angle: 'right', hint: { en: 'TURN RIGHT', ja: '右を向いて' } },
+            { type: 'behind', pitch: 0, angle: 'behind', hint: { en: 'TURN AROUND', ja: '振り返って' } },
+            { type: 'up_left', pitch: -30, angle: 'left', hint: { en: 'LOOK UP LEFT', ja: '左上を見て' } },
+            { type: 'up_right', pitch: -30, angle: 'right', hint: { en: 'LOOK UP RIGHT', ja: '右上を見て' } },
+            { type: 'down_left', pitch: 30, angle: 'left', hint: { en: 'LOOK DOWN LEFT', ja: '左下を見て' } }
+        ];
+        
+        const position = positions[Math.floor(Math.random() * positions.length)];
+        
+        switch(position.angle) {
+            case 'random':
+                this.aiAngle = Math.random() * 360 - 180;
+                break;
+            case 'behind':
+                this.aiAngle = this.heading + 180;
+                break;
+            case 'left':
+                this.aiAngle = this.heading - 90;
+                break;
+            case 'right':
+                this.aiAngle = this.heading + 90;
+                break;
+        }
+        
+        while (this.aiAngle > 180) this.aiAngle -= 360;
+        while (this.aiAngle < -180) this.aiAngle += 360;
+        
+        this.aiPitch = position.pitch + (Math.random() - 0.5) * 15;
         this.aiPitch = Math.max(-60, Math.min(60, this.aiPitch));
         
-        this.showSpawnNotification();
+        this.currentAI.positionHint = position.hint[this.language];
+        
+        this.showSpawnNotification(position.hint[this.language]);
         this.updateTargetIndicator();
     }
 
     captureAI() {
         if (!this.aiInFrame || !this.currentAI) return;
         
-        // Anti-cheat: Check if player is actually walking
-        if (!this.isWalking && this.userStats.totalCaptured > 2) {
-            this.showMovementWarning();
-            return;
-        }
-        
         const captured = this.currentAI;
         captured.caught = true;
         this.userStats.totalCaptured++;
-        this.lastCapturedAI = captured;
+        this.lastCapturedAI = captured; // Store for info display
         
         const capturedImg = document.getElementById('captured-icon');
+        const emojiMap = {
+            'GPT-4': '🤖', 'Claude': '🧠', 'Gemini': '💎', 'LLaMA': '🦙', 'PaLM': '🌴',
+            'BERT': '📚', 'T5': '🔄', 'GPT-3': '⚡', 'Mistral': '🌪️', 'Falcon': '🦅',
+            'Rufus': '🛍️', 'Copilot': '💻', 'Bard': '🎭', 'ChatGPT': '💬', 'Alexa': '🔊'
+        };
         capturedImg.innerHTML = `<div style="font-size: 60px;">${captured.emoji || '🤖'}</div>`;
         
         document.getElementById('capture-message').textContent = 
@@ -603,38 +600,6 @@ class AIHunterGame {
         this.updateInventory();
         this.updateUserStats();
         this.showModal('success-modal');
-    }
-    
-    showMovementWarning() {
-        const warning = document.createElement('div');
-        warning.style.cssText = `
-            position: fixed;
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%);
-            background: rgba(255, 51, 102, 0.95);
-            border: 2px solid #ff3366;
-            border-radius: 12px;
-            padding: 20px;
-            color: white;
-            font-family: 'Orbitron', sans-serif;
-            font-size: 14px;
-            text-align: center;
-            z-index: 1000;
-            max-width: 300px;
-        `;
-        
-        const warningText = this.language === 'ja' ? 
-            '歩いてプレイしてください！<br>手首だけ動かしても捕獲できません。' : 
-            'WALK TO PLAY!<br>Wrist movement alone won\'t work.';
-            
-        warning.innerHTML = `
-            <div style="font-size: 24px; margin-bottom: 10px;">🚶</div>
-            <div>${warningText}</div>
-        `;
-        
-        document.body.appendChild(warning);
-        setTimeout(() => warning.remove(), 4000);
     }
 
     gameComplete() {
@@ -762,83 +727,33 @@ class AIHunterGame {
         if (hint) hint.remove();
     }
     
-    showSpawnNotification() {
+    showSpawnNotification(hint = null) {
+        if (!hint) {
+            hint = this.language === 'ja' ? '新しいターゲットが検出されました！' : 'NEW TARGET DETECTED!';
+        }
         const notification = document.createElement('div');
         notification.style.cssText = `
             position: fixed;
             top: 20px;
             left: 50%;
             transform: translateX(-50%);
-            background: rgba(0, 0, 0, 0.9);
-            border: 2px solid rgba(255, 51, 102, 0.8);
+            background: rgba(255, 51, 102, 0.9);
             color: white;
             padding: 12px 24px;
             border-radius: 8px;
             font-family: 'Orbitron', sans-serif;
-            font-size: 12px;
-            font-weight: bold;
+            font-size: 11px;
             letter-spacing: 1px;
             z-index: 1000;
             animation: slideDown 0.3s ease;
             text-align: center;
             max-width: 280px;
-            box-shadow: 0 0 20px rgba(255, 51, 102, 0.5);
-            text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.8);
         `;
         const targetText = this.language === 'ja' ? 'ターゲット発見' : 'TARGET DETECTED';
-        notification.innerHTML = `<div style="color: #ff3366;">🎯 ${targetText}</div><div style="font-size: 11px; color: #00f0ff; margin-top: 4px;">${this.currentAI.name}</div>`;
+        notification.innerHTML = `<div style="margin-bottom: 4px;">🎯 ${targetText}</div><div style="font-size: 10px; opacity: 0.8;">${hint}</div>`;
         document.body.appendChild(notification);
         
-        setTimeout(() => notification.remove(), 4000);
-    }
-    
-    showSpawnDelay() {
-        const delay = document.createElement('div');
-        delay.id = 'spawn-delay';
-        delay.style.cssText = `
-            position: fixed;
-            bottom: 150px;
-            left: 50%;
-            transform: translateX(-50%);
-            background: rgba(0, 0, 0, 0.9);
-            border: 2px solid var(--accent);
-            border-radius: 12px;
-            padding: 16px;
-            font-family: 'Orbitron', sans-serif;
-            font-size: 12px;
-            font-weight: bold;
-            color: var(--accent);
-            letter-spacing: 1px;
-            text-align: center;
-            z-index: 1000;
-            box-shadow: 0 0 20px rgba(124, 58, 237, 0.3);
-            text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.8);
-        `;
-        
-        const waitText = this.language === 'ja' ? 'ターゲットをスキャン中...' : 'SCANNING FOR TARGET...';
-        delay.innerHTML = `
-            <div>${waitText}</div>
-            <div style="margin-top: 8px; font-size: 10px; opacity: 0.8;">⌛ ${Math.ceil(this.aiSpawnDelay/1000)}s</div>
-        `;
-        
-        document.body.appendChild(delay);
-        
-        // Update countdown
-        let remaining = this.aiSpawnDelay / 1000;
-        const countdown = setInterval(() => {
-            remaining--;
-            const delayEl = document.getElementById('spawn-delay');
-            if (delayEl && remaining > 0) {
-                delayEl.querySelector('div:last-child').innerHTML = `⌛ ${remaining}s`;
-            } else {
-                clearInterval(countdown);
-            }
-        }, 1000);
-    }
-    
-    hideSpawnDelay() {
-        const delay = document.getElementById('spawn-delay');
-        if (delay) delay.remove();
+        setTimeout(() => notification.remove(), 5000);
     }
     
     startMovementPhase() {
@@ -852,14 +767,12 @@ class AIHunterGame {
         const counter = document.getElementById('distance-counter');
         if (counter) {
             const remaining = Math.max(0, this.minMovementDistance - this.distanceTraveled);
-            const walkText = this.language === 'ja' ? '5メートル歩いて次のターゲットをアンロック' : 'WALK 5 METERS TO UNLOCK NEXT TARGET';
+            const walkText = this.language === 'ja' ? '1メートル歩いて次のターゲットをアンロック' : 'WALK 1 METER TO UNLOCK NEXT TARGET';
             const remainingText = this.language === 'ja' ? '残り' : 'remaining';
-            const stepsText = this.language === 'ja' ? `歩数: ${this.stepCount}` : `Steps: ${this.stepCount}`;
             
             counter.innerHTML = `
                 <div>${walkText}</div>
                 <div style="font-size: 18px; margin: 8px 0;">${remaining.toFixed(1)}m ${remainingText}</div>
-                <div style="font-size: 12px; margin: 4px 0; opacity: 0.8;">${stepsText}</div>
                 <div style="width: 200px; height: 8px; background: rgba(255,255,255,0.2); border-radius: 4px; margin: 0 auto;">
                     <div style="width: ${Math.min(100, (this.distanceTraveled / this.minMovementDistance) * 100)}%; height: 100%; background: var(--primary); border-radius: 4px; transition: width 0.3s;"></div>
                 </div>
@@ -875,19 +788,16 @@ class AIHunterGame {
             bottom: 200px;
             left: 50%;
             transform: translateX(-50%);
-            background: rgba(0, 0, 0, 0.9);
+            background: rgba(0, 240, 255, 0.1);
             border: 2px solid var(--primary);
             border-radius: 12px;
             padding: 16px;
             font-family: 'Orbitron', sans-serif;
             font-size: 12px;
-            font-weight: bold;
             color: var(--primary);
             letter-spacing: 1px;
             text-align: center;
             z-index: 1000;
-            box-shadow: 0 0 20px rgba(0, 240, 255, 0.3);
-            text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.8);
         `;
         document.body.appendChild(counter);
         this.updateDistanceCounter();
@@ -1175,72 +1085,10 @@ class AIHunterGame {
     }
     
     calculateDistance(pos1, pos2) {
-        // Simple distance calculation for step-based movement
-        return Math.abs(pos1 - pos2);
-    }
-    
-    calculateDirectionHint() {
-        let angleDiff = this.aiAngle - this.heading;
-        while (angleDiff > 180) angleDiff -= 360;
-        while (angleDiff < -180) angleDiff += 360;
-        
-        const pitchDiff = this.aiPitch - this.pitch;
-        
-        // Priority: vertical first, then horizontal
-        if (Math.abs(pitchDiff) > 25) {
-            if (pitchDiff > 25) {
-                if (Math.abs(angleDiff) > 45) {
-                    return angleDiff > 0 ? 
-                        (this.language === 'ja' ? '右下を見て' : 'LOOK DOWN RIGHT') :
-                        (this.language === 'ja' ? '左下を見て' : 'LOOK DOWN LEFT');
-                }
-                return this.language === 'ja' ? '下を見て' : 'LOOK DOWN';
-            } else {
-                if (Math.abs(angleDiff) > 45) {
-                    return angleDiff > 0 ? 
-                        (this.language === 'ja' ? '右上を見て' : 'LOOK UP RIGHT') :
-                        (this.language === 'ja' ? '左上を見て' : 'LOOK UP LEFT');
-                }
-                return this.language === 'ja' ? '上を見て' : 'LOOK UP';
-            }
-        }
-        
-        // Horizontal directions
-        if (Math.abs(angleDiff) < 20) {
-            return this.language === 'ja' ? '前方' : 'STRAIGHT AHEAD';
-        } else if (Math.abs(angleDiff) > 150) {
-            return this.language === 'ja' ? '振り返って' : 'TURN AROUND';
-        } else if (angleDiff > 60) {
-            return this.language === 'ja' ? '大きく右へ' : 'TURN FAR RIGHT';
-        } else if (angleDiff < -60) {
-            return this.language === 'ja' ? '大きく左へ' : 'TURN FAR LEFT';
-        } else if (angleDiff > 0) {
-            return this.language === 'ja' ? '右を向いて' : 'TURN RIGHT';
-        } else {
-            return this.language === 'ja' ? '左を向いて' : 'TURN LEFT';
-        }
-    }
-    
-    validateWalkingMovement() {
-        if (this.movementBuffer.length < 10) return false;
-        
-        // Check if gyroscope shows body movement (not just wrist)
-        const recentGyro = this.movementBuffer.slice(-10);
-        const avgGyroX = recentGyro.reduce((sum, m) => sum + m.gyro.x, 0) / recentGyro.length;
-        const avgGyroY = recentGyro.reduce((sum, m) => sum + m.gyro.y, 0) / recentGyro.length;
-        
-        // Walking involves more Y-axis rotation (nodding) than X-axis (wrist turning)
-        const isBodyMovement = avgGyroY > avgGyroX * 0.5 && avgGyroY < 50;
-        
-        // Check acceleration pattern consistency
-        const recentAccel = recentGyro.map(m => m.accel);
-        const avgAccel = recentAccel.reduce((sum, a) => sum + a, 0) / recentAccel.length;
-        const variance = recentAccel.reduce((sum, a) => sum + Math.pow(a - avgAccel, 2), 0) / recentAccel.length;
-        
-        // Walking has moderate variance and reasonable average
-        const hasWalkingPattern = variance > 2 && variance < 50 && avgAccel > 2 && avgAccel < 15;
-        
-        return isBodyMovement && hasWalkingPattern;
+        const dx = pos1.x - pos2.x;
+        const dy = pos1.y - pos2.y;
+        const dz = pos1.z - pos2.z;
+        return Math.sqrt(dx*dx + dy*dy + dz*dz);
     }
 }
 
