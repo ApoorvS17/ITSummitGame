@@ -837,7 +837,27 @@ class AIHunterGame {
                 max-width: 400px;
                 color: white;
                 font-family: 'Orbitron', sans-serif;
+                position: relative;
             ">
+                <button id="close-info-btn" style="
+                    position: absolute;
+                    top: 15px;
+                    right: 15px;
+                    width: 30px;
+                    height: 30px;
+                    background: rgba(255, 255, 255, 0.1);
+                    border: 1px solid rgba(255, 255, 255, 0.3);
+                    border-radius: 50%;
+                    color: white;
+                    font-size: 16px;
+                    cursor: pointer;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    transition: all 0.3s ease;
+                " onmouseover="this.style.background='rgba(255,255,255,0.2)'" onmouseout="this.style.background='rgba(255,255,255,0.1)'">
+                    ×
+                </button>
                 <div style="font-size: 80px; margin-bottom: 20px;">${lastCaptured.emoji || '🤖'}</div>
                 <h3 style="color: var(--primary); margin-bottom: 15px; font-size: 1.5rem;">${lastCaptured.name}</h3>
                 <p style="line-height: 1.6; font-size: 14px; color: rgba(255,255,255,0.8);">${lastCaptured.info[this.language]}</p>
@@ -846,10 +866,22 @@ class AIHunterGame {
         
         document.body.appendChild(infoModal);
         
-        setTimeout(() => {
+        // Add close button functionality
+        const closeBtn = document.getElementById('close-info-btn');
+        const closeModal = () => {
             infoModal.remove();
             this.startMovementPhase();
-        }, 13000);
+        };
+        
+        closeBtn.addEventListener('click', closeModal);
+        
+        // Auto-close after 13 seconds
+        const autoCloseTimer = setTimeout(closeModal, 13000);
+        
+        // Clear timer if manually closed
+        closeBtn.addEventListener('click', () => {
+            clearTimeout(autoCloseTimer);
+        });
     }
     
 
