@@ -757,12 +757,10 @@ class AIHunterGame {
     }
     
     startMovementPhase() {
-        setTimeout(() => {
-            this.waitingForMovement = true;
-            this.distanceTraveled = 0;
-            this.lastCapturePosition = { ...this.playerPosition };
-            this.showDistanceCounter();
-        }, 10000);
+        this.waitingForMovement = true;
+        this.distanceTraveled = 0;
+        this.lastCapturePosition = { ...this.playerPosition };
+        this.showDistanceCounter();
     }
     
     updateDistanceCounter() {
