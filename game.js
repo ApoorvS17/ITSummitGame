@@ -38,7 +38,7 @@ class AIHunterGame {
         
         this.playerPosition = { x: 0, y: 0, z: 0 };
         this.lastCapturePosition = null;
-        this.minMovementDistance = 3;
+        this.minMovementDistance = 1;
         this.distanceTraveled = 0;
         this.waitingForMovement = false;
         this.lastCapturedAI = null;
@@ -47,7 +47,7 @@ class AIHunterGame {
         this.aiInFrame = false;
         
         this.frameCenter = { x: 0, y: 0 };
-        this.frameRadius = 100;
+        this.frameRadius = 150;
         
         this.spawnTimer = null;
         this.animationId = null;
@@ -224,25 +224,32 @@ class AIHunterGame {
                     const currentTime = Date.now();
                     const deltaTime = (currentTime - lastTime) / 1000;
                     
-                    const threshold = 0.5;
+                    const threshold = 1.5;
+                    const walkingThreshold = 0.8;
+                    
+                    // Only count significant movement that indicates walking
                     const accel = {
                         x: Math.abs(e.acceleration.x) > threshold ? e.acceleration.x : 0,
-                        y: Math.abs(e.acceleration.y) > threshold ? e.acceleration.y : 0,
+                        y: Math.abs(e.acceleration.y) > walkingThreshold ? e.acceleration.y : 0,
                         z: Math.abs(e.acceleration.z) > threshold ? e.acceleration.z : 0
                     };
                     
-                    velocity.x += accel.x * deltaTime;
-                    velocity.y += accel.y * deltaTime;
-                    velocity.z += accel.z * deltaTime;
+                    // Reduce sensitivity to prevent hand movement detection
+                    velocity.x += accel.x * deltaTime * 0.3;
+                    velocity.y += accel.y * deltaTime * 0.5;
+                    velocity.z += accel.z * deltaTime * 0.3;
                     
-                    velocity.x *= 0.95;
-                    velocity.y *= 0.95;
-                    velocity.z *= 0.95;
+                    velocity.x *= 0.85;
+                    velocity.y *= 0.85;
+                    velocity.z *= 0.85;
                     
                     const oldPosition = { ...this.playerPosition };
-                    this.playerPosition.x += velocity.x * deltaTime;
-                    this.playerPosition.y += velocity.y * deltaTime;
-                    this.playerPosition.z += velocity.z * deltaTime;
+                    // Only register movement if there's consistent acceleration pattern
+                    if (Math.abs(accel.y) > walkingThreshold) {
+                        this.playerPosition.x += velocity.x * deltaTime;
+                        this.playerPosition.y += velocity.y * deltaTime;
+                        this.playerPosition.z += velocity.z * deltaTime;
+                    }
                     
                     if (this.waitingForMovement && this.lastCapturePosition) {
                         const movementDelta = this.calculateDistance(oldPosition, this.playerPosition);
@@ -300,8 +307,8 @@ class AIHunterGame {
             
             const pitchDiff = this.aiPitch - this.pitch;
             
-            const fovH = 60;
-            const fovV = 45;
+            const fovH = 80;
+            const fovV = 60;
             
             this.aiVisible = Math.abs(angleDiff) < fovH && Math.abs(pitchDiff) < fovV;
             
@@ -417,10 +424,10 @@ class AIHunterGame {
         while (angleDiff < -180) angleDiff += 360;
         
         const arrowAngle = (angleDiff * Math.PI) / 180;
-        const radius = Math.min(this.canvas.width, this.canvas.height) * 0.35;
+        const radius = Math.min(this.canvas.width, this.canvas.height) * 0.3;
         
         const arrowX = this.frameCenter.x + Math.sin(arrowAngle) * radius;
-        const arrowY = this.frameCenter.y - Math.cos(arrowAngle) * radius * 0.5;
+        const arrowY = this.frameCenter.y - Math.cos(arrowAngle) * radius;
         
         this.ctx.save();
         this.ctx.translate(arrowX, arrowY);
@@ -536,19 +543,18 @@ class AIHunterGame {
         
         const position = positions[Math.floor(Math.random() * positions.length)];
         
-        const baseAngle = Math.random() * 360 - 180;
         switch(position.angle) {
             case 'random':
-                this.aiAngle = baseAngle;
+                this.aiAngle = Math.random() * 360 - 180;
                 break;
             case 'behind':
-                this.aiAngle = baseAngle + 180;
+                this.aiAngle = this.heading + 180;
                 break;
             case 'left':
-                this.aiAngle = baseAngle - 90;
+                this.aiAngle = this.heading - 90;
                 break;
             case 'right':
-                this.aiAngle = baseAngle + 90;
+                this.aiAngle = this.heading + 90;
                 break;
         }
         
@@ -763,7 +769,7 @@ class AIHunterGame {
         const counter = document.getElementById('distance-counter');
         if (counter) {
             const remaining = Math.max(0, this.minMovementDistance - this.distanceTraveled);
-            const walkText = this.language === 'ja' ? '歩いて次のターゲットをアンロック' : 'WALK TO UNLOCK NEXT TARGET';
+            const walkText = this.language === 'ja' ? '1メートル歩いて次のターゲットをアンロック' : 'WALK 1 METER TO UNLOCK NEXT TARGET';
             const remainingText = this.language === 'ja' ? '残り' : 'remaining';
             
             counter.innerHTML = `
@@ -903,7 +909,7 @@ class AIHunterGame {
                 collection: 'COLLECTION',
                 captured: 'CAPTURED',
                 continue: 'CONTINUE',
-                walkToUnlock: 'WALK TO UNLOCK NEXT TARGET',
+                walkToUnlock: 'WALK 1 METER TO UNLOCK NEXT TARGET',
                 remaining: 'remaining'
             },
             ja: {
@@ -923,7 +929,7 @@ class AIHunterGame {
                 collection: 'コレクション',
                 captured: '捕獲成功',
                 continue: '続ける',
-                walkToUnlock: '歩いて次のターゲットをアンロック',
+                walkToUnlock: '1メートル歩いて次のターゲットをアンロック',
                 remaining: '残り'
             }
         };
